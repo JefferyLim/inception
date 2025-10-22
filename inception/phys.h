@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <fcntl.h>
-
+#include <stdio.h>
+#include <stdint.h>
 #define PAGE 4096
 
 static struct {

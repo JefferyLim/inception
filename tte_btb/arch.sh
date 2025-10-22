@@ -2,7 +2,7 @@
 #
 declare -A nodes
 nodes[kwik]="ZEN3"
-nodes[ee-tik-cn102]="ZEN2"
+nodes[ubuntu-inception]="ZEN2"
 nodes[ee-tik-cn108]="ZEN3"
 nodes[ee-tik-cn103]="COFFEE_RE"
 nodes[ee-tik-cn104]="COFFEE"

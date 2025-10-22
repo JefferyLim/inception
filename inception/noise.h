@@ -1,5 +1,7 @@
 #include <pthread.h>
 #include <sys/prctl.h>
+#include <signal.h>
+#include <stdio.h>
 
 pid_t run_sibling_noise(char path[], int core) {
     pid_t child = fork();

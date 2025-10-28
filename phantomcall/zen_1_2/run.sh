@@ -13,5 +13,4 @@ if [ -n "$1" ]; then
     CORE2=$((CORE1 + 6))
 fi
 
-clang -DZEN2 -DCORE1=$CORE1 -DCORE2=$CORE2 inception.c -o inception$CORE1
-clang -DSET=33 workload.c -o workload
+taskset -c $CORE1 ./recursive_pcall

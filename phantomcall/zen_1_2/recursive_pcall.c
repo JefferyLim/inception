@@ -156,7 +156,8 @@ void leak();
 void leak_end();
 asm(".align 0x1000\n\t"
     "leak:\n\t" 
-    NOPS_str(3) // These NOPs are confused for a CALL and push to RSB!
+    "nop\n\t"
+    "nop\n\t"
     "nop\n\t"
     "lfence\n\t"
     "mfence\n\t" 

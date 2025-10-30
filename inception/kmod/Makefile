@@ -1,4 +1,4 @@
-CC=gcc
+CC=gcc-12
 mod-name := kmod
 obj-m += $(mod-name).o
 ccflags-y := \

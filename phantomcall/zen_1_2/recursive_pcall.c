@@ -9,17 +9,18 @@
 #include <sys/mman.h>
 
 // Random Address for RB_PTR
-#define RB_PTR         0x13370000
+#define RB_PTR 0x13370000
+
 // Stride of 12 for 4096 byte alignment
 #define RB_STRIDE_BITS 12
-#define RB_STRIDE      (0x1UL << RB_STRIDE_BITS)
+#define RB_STRIDE     (0x1UL << RB_STRIDE_BITS)
 
-// 32 entries
-#define RB_SLOTS       0x20
-// but only 31 RSB
-#define RSB_SIZE       31
+// 31 RSB entries
+#define RSB_SIZE 31
+// but 32 entries for checks
+#define RB_SLOTS 0x20
 
-#define PTRN 0x100100000000UL // Zen 2
+#define PTRN 0x300100000000UL // Zen 2
 
 // Random address of Phantom Call
 #define PHANTOM_CALL        0x40000000UL
@@ -34,7 +35,6 @@
 
 // Determine value of threshold
 #define THRESHOLD 200
-
 
 // Keeping track of RB hits after an issues return (return 1 - 31)
 __attribute__((aligned(4096))) static uint64_t results1[RB_SLOTS] = {0};
@@ -69,6 +69,8 @@ __attribute__((aligned(4096))) static uint64_t results29[RB_SLOTS] = {0};
 __attribute__((aligned(4096))) static uint64_t results30[RB_SLOTS] = {0};
 __attribute__((aligned(4096))) static uint64_t results31[RB_SLOTS] = {0};
 
+
+// nop slide alias
 #define NOPS_str(n)                                                                      \
     ".rept " xstr(n) "\n\t"                                                              \
                      "nop\n\t"                                                           \
@@ -97,7 +99,7 @@ static inline __attribute__((always_inline)) uint64_t rdtscp(void) {
     return (hi << 32) | lo;
 }
 
-static inline __attribute__((always_inline)) void test_cache_timing(uint32_t ptr){
+static inline __attribute__((always_inline)) void test_cache_timing(uint64_t* ptr){
     asm("lfence");
     asm("mfence");
 
@@ -109,25 +111,35 @@ static inline __attribute__((always_inline)) void test_cache_timing(uint32_t ptr
     asm("lfence");
     asm("mfence");
 
-    printf("dt: %d\n", dt);
+    printf("dt: %lu\n", dt);
 
 }
 
-
+// This iterates through the entire reload buffer and measures the timing access
+// base + (stride * c) where stride is 4096, and c is 0 to RSB_SIZE
 static inline __attribute__((always_inline)) void reload_range(long base, long stride,
                                                                int n, uint64_t *results) {
     asm("lfence");
     asm("mfence");
     int done = 0;
+    
+    // This is a loop that iterates through all values from 0 to n
+    // The purpose for this complex setup is to avoid any memory 
+    // optimizations like pre-fetching
     for (volatile int k = 0; k < n; k += 2) {
         uint64_t c = n - 1 - ((k * 13 + 9) & (n - 1));
+
+	// Pick a slot from the reload buffer 
         unsigned volatile char *p = (uint8_t *) base + (stride * c);
+	
         uint64_t t0 = rdtsc();
         *(volatile unsigned char *) p;
         uint64_t dt = rdtscp() - t0;
-        if (dt < 200)
+        
+	if (dt < THRESHOLD)
             results[c]++;
-        if (k == n - 2 && !done) {
+        
+	if (k == n - 2 && !done) {
             k = -1;
             done = 1;
         }
@@ -136,6 +148,7 @@ static inline __attribute__((always_inline)) void reload_range(long base, long s
     asm("mfence");
 }
 
+// Flush the entire range from cache
 static inline __attribute__((always_inline)) void flush_range(long start, long stride,
                                                               int n) {
     asm("lfence");
@@ -152,6 +165,8 @@ static inline __attribute__((always_inline)) void flush_range(long start, long s
     
 //"mov " xstr((RB_PTR + (RSB_SIZE * RB_STRIDE))) ", %r8\n\t"
 
+
+// Define leak, leak_end, which are defined in the assembly below
 void leak();
 void leak_end();
 asm(".align 0x1000\n\t"
@@ -159,9 +174,11 @@ asm(".align 0x1000\n\t"
     "nop\n\t"
     "nop\n\t"
     "nop\n\t"
+    "mov " xstr((RB_PTR + (RSB_SIZE * RB_STRIDE))) ", %r8\n\t"
+    "nop\n\t"
     "lfence\n\t"
     "mfence\n\t" 
-    NOPS_str(2000)
+    NOPS_str(2000) // Extend the speculation
     "jmp *%r10\n\t"
     "leak_end:\n\t");
 
@@ -169,11 +186,13 @@ void phantom_jump_insert();
 
 int main(int argc, char *argv[]) {
     // We first allocate the reload buffer
+    // This is the buffer we use to measure cache timings
     if (mmap((void *) RB_PTR, ((RB_SLOTS + 1) << RB_STRIDE_BITS), PROT_RW, MMAP_FLAGS, -1,
              0) == MAP_FAILED) {
         err(1, "rb");
     }
 
+    // Results of our array 
     uint64_t *results_arr[RSB_SIZE] = {
         results1,  results2,  results3,  results4,  results5,  results6,  results7,
         results8,  results9,  results10, results11, results12, results13, results14,
@@ -188,10 +207,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Show that the addresses of result* are 4096 byte aligned
+    printf("0x%lx\n", (unsigned long)&results1[0]);
+    printf("0x%lx\n", (unsigned long)&results1[1]);
+    printf("0x%lx\n", (unsigned long)&results1[2]);
+    printf("0x%lx\n", (unsigned long)&results2[0]);
 
     //**********************************************
     // TEST FOR THE THRESHOLD 
-    // USE results_arr 
+    // USE results_arr to measure timing differences
 
     __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
     test_cache_timing(results_arr[0]);
@@ -201,41 +225,39 @@ int main(int argc, char *argv[]) {
     test_cache_timing(results_arr[0]);
 
     // remove when done with threshold testing
+    // return 0;
 
     uint64_t jmp_fn_train_alias = (uint64_t) phantom_jump_insert ^ PTRN;
 
-    if (mmap((void *) (jmp_fn_train_alias & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1,
-             0) == MAP_FAILED) {
+    if (mmap((void *) (jmp_fn_train_alias & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED ) {
         err(1, "jmp_fn_train");
     }
 
-    if (mmap((void *) (PHANTOM_CALL & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) ==
-        MAP_FAILED) {
+    if (mmap((void *) (PHANTOM_CALL & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED) {
         err(1, "PHANTOM_CALL");
     }
 
-    if (mmap((void *) (CALL_FN_TRAIN_ALIAS & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1,
-             0) == MAP_FAILED) {
+    if (mmap((void *) (CALL_FN_TRAIN_ALIAS & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED) {
         err(1, "CALL_FN_TRAIN_ALIAS");
     }
 
-    // Move the leak to PHANTOM_CALL
+    // Copy the leak gadget to PHANTOM_CALL
     memcpy((void *) PHANTOM_CALL, leak, leak_end - leak);
 
     *(uint32_t *) CALL_FN_TRAIN_ALIAS = 0x00d0ff41; // call *%r8
-    *(uint32_t *) jmp_fn_train_alias = 0x00e0ff41;  // jmp *%r8
+    *(uint32_t *) jmp_fn_train_alias =  0x00e0ff41; // jmp *%r8
     
-    
-    printf("Address of PHANTOM_CALL:        0x%16llx\n", PHANTOM_CALL);
-    printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16llx\n", CALL_FN_TRAIN_ALIAS);
-    printf("Address of PHANTOM_JMP:         0x%16llx\n", phantom_jump_insert);
-    printf("Address of JMP_FN_TRAIN_ALIAS:  0x%16llx\n", jmp_fn_train_alias);
+    printf("Address of PHANTOM_CALL:        0x%16lx\n", (unsigned long)PHANTOM_CALL);
+    printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16lx\n", (unsigned long)CALL_FN_TRAIN_ALIAS);
+    printf("Address of PHANTOM_JMP:         0x%16lx\n", (unsigned long)phantom_jump_insert);
+    printf("Address of JMP_FN_TRAIN_ALIAS:  0x%16lx\n", (unsigned long)jmp_fn_train_alias);
     
     for (int i = 0; i < ROUNDS; i++) {
+#if 1
         // Inserting PhantomJMP
         // clang-format off
-        asm("mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
-            "mov $1f, %%r10\n\t"
+        asm("mov $1f, %%r10\n\t"
+	    "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
             "jmp *%[phantom_train]\n\t"
             "1:\n\t" ::[phantom_train] "r"(jmp_fn_train_alias)
             : "r8", "r10");
@@ -246,21 +268,27 @@ int main(int argc, char *argv[]) {
             "mov $" xstr(CALL_FN_TRAIN_ALIAS) ", %%r9\n\t"
             "jmp *%%r9\n\t"
             "1: pop %%r9\n\t" ::: "r8", "r9", "r10");
+#endif 
 
         // Priming RSB state
-        asm(".secret=0\n\t"
+        asm(".index=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
-            "mov $.secret, %%rdi\n\t"
+            "mov $.index, %%rdi\n\t"
             "shl $" xstr(RB_STRIDE_BITS) ", %%rdi\n\t"
             "mov " xstr(RB_PTR) "(%%rdi), %%r8\n\t"
             "nop\n\t"
             "4: pop %%r9\n\t"
-            ".secret=.secret+1\n\t"
+            ".index=.index+1\n\t"
             ".endr\n\t" ::: "r8", "r9");
 
         // PhantomJMP will be triggered
         asm(
+	    NOPS_str(512)
+	    "jmp phantom_jump_insert\n\t"
+	    "a:\n\t"
+	    NOPS_str(512)
+	    NOPS_str(512)
             "phantom_jump_insert:\n\t"
             NOPS_str(512)
         );
@@ -285,7 +313,7 @@ int main(int argc, char *argv[]) {
     // Print results
     printf("     Return: ");
     for (int i = 0; i < RSB_SIZE; i++) {
-        printf(" - %05d", i + 1);
+         printf(" - %05d", i + 1);
     }
     printf("\n");
 

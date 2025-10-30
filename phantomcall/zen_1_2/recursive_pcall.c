@@ -24,7 +24,6 @@
 
 // Random address of Phantom Call
 #define PHANTOM_CALL        0x40000000UL
-#define CALL_FN_TRAIN_ALIAS (PHANTOM_CALL ^ PTRN)
 
 #define ROUNDS 10000
 
@@ -230,6 +229,7 @@ int main(int argc, char *argv[]) {
     // return 0;
 
     uint64_t jmp_fn_train_alias = (uint64_t) phantom_jump_insert ^ PTRN;
+    uint64_t call_fn_train_alias = (uint64_t) PHANTOM_CALL ^ PTRN;
 
     if (mmap((void *) (jmp_fn_train_alias & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED ) {
         err(1, "jmp_fn_train");
@@ -239,7 +239,7 @@ int main(int argc, char *argv[]) {
         err(1, "PHANTOM_CALL");
     }
 
-    if (mmap((void *) (CALL_FN_TRAIN_ALIAS & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED) {
+    if (mmap((void *) (call_fn_train_alias & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED) {
         err(1, "CALL_FN_TRAIN_ALIAS");
     }
 
@@ -248,11 +248,11 @@ int main(int argc, char *argv[]) {
 
 
     // Insert our call and jump calls in aliased addresses
-    *(uint32_t *) CALL_FN_TRAIN_ALIAS = 0x00d0ff41; // call *%r8
+    *(uint32_t *) call_fn_train_alias = 0x00d0ff41; // call *%r8
     *(uint32_t *) jmp_fn_train_alias =  0x00e0ff41; // jmp *%r8
     
     printf("Address of PHANTOM_CALL:        0x%16lx\n", (unsigned long)PHANTOM_CALL);
-    printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16lx\n", (unsigned long)CALL_FN_TRAIN_ALIAS);
+    printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16lx\n", (unsigned long)call_fn_train_alias);
     printf("Address of PHANTOM_JMP:         0x%16lx\n", (unsigned long)phantom_jump_insert);
     printf("Address of JMP_FN_TRAIN_ALIAS:  0x%16lx\n", (unsigned long)jmp_fn_train_alias);
     
@@ -269,9 +269,9 @@ int main(int argc, char *argv[]) {
         // Inserting recursive PhantomCALL
         asm("mov $1f, %%r10\n\t"
             "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
-            "mov $" xstr(CALL_FN_TRAIN_ALIAS) ", %%r9\n\t"
-            "jmp *%%r9\n\t"
-            "1: pop %%r9\n\t" ::: "r8", "r9", "r10");
+            "jmp *%[phantom_jump]\n\t"
+            "1: pop %%r9\n\t" ::[phantom_jump] "r"(call_fn_train_alias)
+            : "r8", "r9", "r10");
 #endif 
 
         // Priming RSB state

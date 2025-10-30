@@ -261,7 +261,7 @@ int main(int argc, char *argv[]) {
         // Inserting PhantomJMP
         // clang-format off
         asm("mov $1f, %%r10\n\t"
-        "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
+            "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
             "jmp *%[phantom_train]\n\t"
             "1:\n\t" ::[phantom_train] "r"(jmp_fn_train_alias)
             : "r8", "r10");

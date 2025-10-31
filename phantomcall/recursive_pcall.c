@@ -172,7 +172,7 @@ asm(".align 0x1000\n\t"
 	"nop\n\t"
 // INSERT YOUR LEAK BELOW
 #if 1
-    "mov $" xstr(RSB_SIZE) ", %r8\n\t"
+    "mov $" xstr(7) ", %r8\n\t"
     "shl $" xstr(RB_STRIDE_BITS) ", %r8\n\t"
     "mov " xstr(RB_PTR) "(%r8), %r8\n\t" 
 #endif

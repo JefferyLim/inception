@@ -32,6 +32,9 @@
 #define PROT_RW    (PROT_READ | PROT_WRITE)
 #define PROT_RWX   (PROT_RW | PROT_EXEC)
 
+//Uncomment to enable PJ, PC
+//#define ENABLE_PJPC
+
 
 // Determine value of threshold
 #define THRESHOLD 200
@@ -172,7 +175,8 @@ asm(".align 0x1000\n\t"
     "nop\n\t"
     "nop\n\t"
 	"nop\n\t"
-// INSERT YOUR LEAK BELOW
+// Q2: INSERT YOUR LEAK GADGET BELOW
+// NOTE: You don't need to use double %'s for the registers, you can just use %r# 
 #if 1
 #endif
     "nop\n\t"
@@ -252,7 +256,7 @@ int main(int argc, char *argv[]) {
     printf("Address of JMP_FN_TRAIN_ALIAS: \t0x%16lx\n", (unsigned long)jmp_fn_train_alias);
     
     for (int i = 0; i < ROUNDS; i++) {
-#if 0 
+#ifdef ENABLE_PJPC 
         // STAGE 3: Inserting PhantomJMP
         // clang-format off
         asm("mov $1f, %%r10\n\t"
@@ -270,6 +274,7 @@ int main(int argc, char *argv[]) {
 #endif 
 
         // STAGE 5: Priming RSB state
+        // Q1: What happens when index starts at a different number?
         asm(".index=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
@@ -278,7 +283,7 @@ int main(int argc, char *argv[]) {
             "mov " xstr(RB_PTR) "(%%rdi), %%r8\n\t"
             "nop\n\t"
             "4: pop %%r9\n\t"
-            ".index=.index+1\n\t"
+            ".index=.index+1\n\t" // Don't forget to update the increment (or decrement)
             ".endr\n\t" ::: "r8", "r9");
 
         // STAGE 6: Triggering PhantomJMP
@@ -289,7 +294,8 @@ int main(int argc, char *argv[]) {
             NOPS_str(512)
             NOPS_str(502)
             "PHANTOM_JUMP:\n\t"
-            // What instruction will trigger the phantom jump?
+            // Q3: What instruction will trigger the phantom jump?
+            "cmp %%r8, %%r9\n\t"
             NOPS_str(512)
             NOPS_str(512)
             NOPS_str(512)

@@ -13,6 +13,8 @@ if [ -n "$1" ]; then
     CORE2=$((CORE1 + 6))
 fi
 
+rm recursive_pcall
+
 taskset -c $CORE1 clang -no-pie -DZEN2 recursive_pcall.c -o recursive_pcall
 taskset -c $CORE1 clang -no-pie -DSET=33 workload.c -o workload
 

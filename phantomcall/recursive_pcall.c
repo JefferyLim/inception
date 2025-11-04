@@ -33,7 +33,7 @@
 #define PROT_RWX   (PROT_RW | PROT_EXEC)
 
 //Uncomment to enable PJ, PC
-//#define ENABLE_PJPC
+#define ENABLE_PJPC
 
 
 // Determine value of threshold
@@ -172,12 +172,20 @@ void leak();
 void leak_end();
 asm(".align 0x1000\n\t"
     "leak:\n\t" 
+    // This 3 nop instruction is necessary or else the gadget does not work
+    // it is either an alignment issue or the RSB doesn't get filled up propelry
     "nop\n\t"
     "nop\n\t"
 	"nop\n\t"
 // Q2: INSERT YOUR LEAK GADGET BELOW
 // NOTE: You don't need to use double %'s for the registers, you can just use %r# 
 #if 1
+
+    // RB_PTR + (4096 * 31) memory access
+    "mov $31, %rdi\n\t"
+    "shl $" xstr(RB_STRIDE_BITS) ", %rdi\n\t"
+    "mov " xstr(RB_PTR) "(%rdi), %r8\n\t"
+
 #endif
     "nop\n\t"
     "nop\n\t"
@@ -217,7 +225,6 @@ int main(int argc, char *argv[]) {
 
     //**********************************************
     // Using results_arr to measure timing differences
-
     __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
     test_cache_timing(results_arr[0]);
 

@@ -35,7 +35,6 @@
 //Uncomment to enable PJ, PC
 #define ENABLE_PJPC
 
-
 // Determine value of threshold
 #define THRESHOLD 200
 
@@ -282,6 +281,7 @@ int main(int argc, char *argv[]) {
 
         // STAGE 5: Priming RSB state
         // Q1: What happens when index starts at a different number?
+        // We can control the order that the RSB touches memory by changing index from 0 to 30 and decrementing
         asm(".index=0\n\t"
             ".rept " xstr(RSB_SIZE) "\n\t"
             "call 4f\n\t"
@@ -296,6 +296,8 @@ int main(int argc, char *argv[]) {
         // STAGE 6: Triggering PhantomJMP
         asm(
             // Nops to align the addresses
+            // From experimentation, we can call jmp's to PHANTOM_JUMP, but if the address of PHANTOM_JUMP ends in 0x0,
+            // then this gadget works
             NOPS_str(512)
             NOPS_str(512)
             NOPS_str(512)

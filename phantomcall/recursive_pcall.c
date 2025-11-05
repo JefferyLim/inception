@@ -224,9 +224,12 @@ int main(int argc, char *argv[]) {
 
     //**********************************************
     // Using results_arr to measure timing differences
+    printf("Measuring cache timing for a miss: ");
     __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
     test_cache_timing(results_arr[0]);
 
+    
+    printf("Measuring cache timing for a hit: ");
     __asm__ volatile("clflushopt (%0)\n" ::"r"(results_arr[0]));
     results_arr[0][0] = 0;
     test_cache_timing(results_arr[0]);
@@ -259,7 +262,7 @@ int main(int argc, char *argv[]) {
     printf("\n\nAddress of PHANTOM_CALL \t0x%16lx\n", (unsigned long)PHANTOM_CALL);
     printf("Address of CALL_FN_TRAIN_ALIAS: 0x%16lx\n", (unsigned long)call_fn_train_alias);
     printf("Address of PHANTOM_JMP: \t0x%16lx\n", (unsigned long)PHANTOM_JUMP);
-    printf("Address of JMP_FN_TRAIN_ALIAS: \t0x%16lx\n", (unsigned long)jmp_fn_train_alias);
+    printf("Address of JMP_FN_TRAIN_ALIAS: \t0x%16lx\n\n", (unsigned long)jmp_fn_train_alias);
     
     for (int i = 0; i < ROUNDS; i++) {
 #ifdef ENABLE_PJPC 

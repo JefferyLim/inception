@@ -128,7 +128,8 @@ class Worker(threading.Thread):
                 if printout is False and pattern in stripped:
                     printout = True
                     safe_print(f"[{self.name}] detected pattern in output;")
-
+                
+                # Only print out once we find the string 
                 if printout is True:
                     safe_print(f"[{self.name}] child: {stripped}")
 
@@ -216,9 +217,9 @@ def main():
                 name, success, exe, arg_used, attempts = result_q.get(timeout=1.0)
                 status = "SUCCESS" if success else "FAIL"
                 safe_print(f"[MAIN] {name} -> {status} (exe={exe}, attempts={attempts}, last_arg={arg_used})")
+                # Stop trying when we are find the string
                 if status == "SUCCESS":
                     done = 1
-
             except queue.Empty:
                 # still waiting
                 pass
